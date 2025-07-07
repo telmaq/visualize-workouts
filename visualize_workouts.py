@@ -43,8 +43,8 @@ class WorkoutVisualizer:
             stdscr.addstr(0, 0, "🏋️  WORKOUT PROGRESSION VISUALIZER 🏋️")
             stdscr.addstr(1, 0, "=" * 50)
             stdscr.addstr(3, 0, "Select an exercise to visualize:")
-            stdscr.addstr(4, 0, "(↑/↓: navigate, Enter: select, q: quit, type to search)")
-            stdscr.addstr(5, 0, f"Search: {search_query}")
+            stdscr.addstr(4, 0, "(↑/↓: navigate, Enter: select, ctrl+c: quit, type to search)")
+            stdscr.addstr(5, 0, f"Search (esc to clear): {search_query}")
 
             # Filter exercises based on search query
             filtered_exercises = [ex for ex in self.exercises if search_query.lower() in ex.lower()]
@@ -62,19 +62,42 @@ class WorkoutVisualizer:
 
             for i, exercise in enumerate(filtered_exercises[scroll_offset:scroll_offset + num_display_lines]):
                 row = 7 + i
-                if i + scroll_offset == selected_index:
-                    stdscr.attron(curses.color_pair(1))
-                    stdscr.addstr(row, 0, f"❯ {exercise}")
-                    stdscr.attroff(curses.color_pair(1))
+                is_selected = (i + scroll_offset == selected_index)
+                # Find the match for highlighting
+                if search_query:
+                    lower_ex = exercise.lower()
+                    lower_query = search_query.lower()
+                    start_idx = lower_ex.find(lower_query)
                 else:
-                    stdscr.addstr(row, 0, f"  {exercise}")
+                    start_idx = -1
+
+                if is_selected:
+                    stdscr.attron(curses.color_pair(1))  # Selected line color
+
+                stdscr.addstr(row, 0, "❯ " if is_selected else "  ")
+
+                col = 2  # Start after the arrow/space
+                if start_idx != -1 and search_query:
+                    # Print before match
+                    stdscr.addstr(row, col, exercise[:start_idx])
+                    col += len(exercise[:start_idx])
+                    # Print match in highlight color
+                    stdscr.attron(curses.color_pair(2))
+                    stdscr.addstr(row, col, exercise[start_idx:start_idx+len(search_query)])
+                    stdscr.attroff(curses.color_pair(2))
+                    col += len(search_query)
+                    # Print after match
+                    stdscr.addstr(row, col, exercise[start_idx+len(search_query):])
+                else:
+                    stdscr.addstr(row, col, exercise)
+
+                if is_selected:
+                    stdscr.attroff(curses.color_pair(1))
 
             stdscr.refresh()
             key = stdscr.getch()
-
-            if key == ord('q'):
-                break
-            elif key == curses.KEY_UP:
+            
+            if key == curses.KEY_UP:
                 if selected_index > 0:
                     selected_index -= 1
             elif key == curses.KEY_DOWN:
@@ -106,6 +129,8 @@ class WorkoutVisualizer:
     def curses_main(self, stdscr):
         curses.start_color()
         curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)
+        curses.init_pair(2, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
+        curses.init_pair(3, curses.COLOR_RED, curses.COLOR_BLACK)
         self.display_menu_curses(stdscr)
 
 def main():

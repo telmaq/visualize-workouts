@@ -9,6 +9,7 @@ import tty
 import os
 from collections import defaultdict
 import curses
+import plotext as plt
 
 class WorkoutDataLoader:
     def __init__(self, csv_file):
@@ -29,6 +30,22 @@ class WorkoutMenuUI:
         self.data_loader = data_loader
         self.exercises = data_loader.get_exercises()
 
+    def plot_weight_over_time_plotext(self, dates, weights, label='Weight over time'):
+        if not weights or len(weights) < 2:
+            print('Not enough data to plot.')
+            return
+        plt.clear_figure()
+        plt.title(label)
+        plt.xlabel('Date')
+        plt.ylabel('Weight')
+        plt.plot(dates, weights, marker='dot', color='green+')
+        plt.canvas_color('black')
+        plt.axes_color('black')
+        plt.ticks_color('white')
+        # plt.xticks(rotation=15, automatic=True)
+        # plt.tight_layout()
+        plt.show()
+
     def display_menu(self, stdscr):
         curses.curs_set(0)
         max_y, max_x = stdscr.getmaxyx()
@@ -47,7 +64,6 @@ class WorkoutMenuUI:
 
             filtered_exercises = [ex for ex in self.exercises if search_query.lower() in ex.lower()]
             num_display_lines = max_y - 7
-
             if selected_index >= len(filtered_exercises):
                 selected_index = max(0, len(filtered_exercises) - 1)
 
@@ -95,12 +111,19 @@ class WorkoutMenuUI:
             elif key in [curses.KEY_ENTER, 10, 13]:
                 if filtered_exercises:
                     stdscr.clear()
-                    stdscr.addstr(0, 0, f"You selected: {filtered_exercises[selected_index]}")
+                    exercise_name = filtered_exercises[selected_index]
+                    stdscr.addstr(0, 0, f"You selected: {exercise_name}")
                     stdscr.addstr(2, 0, "Press any key to return to menu...")
-                    exercise_data = self.data_loader.get_exercise_data(filtered_exercises[selected_index])
-                    stdscr.addstr(4, 0, f"{exercise_data}")
+                    exercise_data = self.data_loader.get_exercise_data(exercise_name)
+                    stdscr.addstr(4, 0, "(See terminal for plot)")
                     stdscr.refresh()
-                    stdscr.getch()
+                    curses.endwin()  # End curses mode before printing
+                    # Prepare data, drop missing weights and align dates
+                    weights = list(exercise_data['Weight'].dropna())
+                    dates = list(exercise_data.loc[exercise_data['Weight'].notna(), 'Workout Start'].dt.strftime('%d/%m/%Y'))
+                    self.plot_weight_over_time_plotext(dates, weights, label=f'Weight over time: {exercise_name}')
+                    input("Press Enter to return to menu...")
+                    return  # Exit to menu after plot
             elif key in (curses.KEY_BACKSPACE, 127, 8):
                 search_query = search_query[:-1]
                 selected_index = 0
@@ -141,7 +164,7 @@ def main():
         sys.exit(1)
     
     try:
-        visualizer = WorkoutVisualizer(csv_file)
+        visualizer = WorkoutVisualizer(csv_file) 
         visualizer.run()
     except KeyboardInterrupt:
         print("\nExiting... 💪")

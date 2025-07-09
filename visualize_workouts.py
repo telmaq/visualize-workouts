@@ -10,27 +10,26 @@ import os
 from collections import defaultdict
 import curses
 
-class WorkoutVisualizer:
+class WorkoutDataLoader:
     def __init__(self, csv_file):
         self.df = pd.read_csv(csv_file)
         self.df['Workout Start'] = pd.to_datetime(self.df['Workout Start'])
         self.exercises = sorted(self.df['Exercise'].dropna().unique())
-        self.selected_index = 0
 
-    def get_key(self):
-        """Get a single keypress from terminal"""
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setraw(sys.stdin.fileno())
-            key = sys.stdin.read(1)
-            if key == '\x1b':  # ESC sequence
-                key += sys.stdin.read(2)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        return key
-    
-    def display_menu_curses(self, stdscr):
+    def get_exercises(self):
+        return self.exercises
+
+    def get_exercise_data(self, exercise):
+        data = self.df[self.df['Exercise'] == exercise].copy()
+        data = data.sort_values('Workout Start')
+        return data
+
+class WorkoutMenuUI:
+    def __init__(self, data_loader):
+        self.data_loader = data_loader
+        self.exercises = data_loader.get_exercises()
+
+    def display_menu(self, stdscr):
         curses.curs_set(0)
         max_y, max_x = stdscr.getmaxyx()
         search_query = ""
@@ -46,15 +45,12 @@ class WorkoutVisualizer:
             stdscr.addstr(4, 0, "(↑/↓: navigate, Enter: select, ctrl+c: quit, type to search)")
             stdscr.addstr(5, 0, f"Search (esc to clear): {search_query}")
 
-            # Filter exercises based on search query
             filtered_exercises = [ex for ex in self.exercises if search_query.lower() in ex.lower()]
-            num_display_lines = max_y - 7  # 6 header lines + 1 for prompt
+            num_display_lines = max_y - 7
 
-            # Adjust selected_index if out of bounds
             if selected_index >= len(filtered_exercises):
                 selected_index = max(0, len(filtered_exercises) - 1)
 
-            # Scrolling logic
             if selected_index < scroll_offset:
                 scroll_offset = selected_index
             elif selected_index >= scroll_offset + num_display_lines:
@@ -63,7 +59,6 @@ class WorkoutVisualizer:
             for i, exercise in enumerate(filtered_exercises[scroll_offset:scroll_offset + num_display_lines]):
                 row = 7 + i
                 is_selected = (i + scroll_offset == selected_index)
-                # Find the match for highlighting
                 if search_query:
                     lower_ex = exercise.lower()
                     lower_query = search_query.lower()
@@ -72,31 +67,25 @@ class WorkoutVisualizer:
                     start_idx = -1
 
                 if is_selected:
-                    stdscr.attron(curses.color_pair(1))  # Selected line color
-
+                    stdscr.attron(curses.color_pair(1))
                 stdscr.addstr(row, 0, "❯ " if is_selected else "  ")
-
-                col = 2  # Start after the arrow/space
+                col = 2
                 if start_idx != -1 and search_query:
-                    # Print before match
                     stdscr.addstr(row, col, exercise[:start_idx])
                     col += len(exercise[:start_idx])
-                    # Print match in highlight color
                     stdscr.attron(curses.color_pair(2))
                     stdscr.addstr(row, col, exercise[start_idx:start_idx+len(search_query)])
                     stdscr.attroff(curses.color_pair(2))
                     col += len(search_query)
-                    # Print after match
                     stdscr.addstr(row, col, exercise[start_idx+len(search_query):])
                 else:
                     stdscr.addstr(row, col, exercise)
-
                 if is_selected:
                     stdscr.attroff(curses.color_pair(1))
 
             stdscr.refresh()
             key = stdscr.getch()
-            
+
             if key == curses.KEY_UP:
                 if selected_index > 0:
                     selected_index -= 1
@@ -108,20 +97,27 @@ class WorkoutVisualizer:
                     stdscr.clear()
                     stdscr.addstr(0, 0, f"You selected: {filtered_exercises[selected_index]}")
                     stdscr.addstr(2, 0, "Press any key to return to menu...")
+                    exercise_data = self.data_loader.get_exercise_data(filtered_exercises[selected_index])
+                    stdscr.addstr(4, 0, f"{exercise_data}")
                     stdscr.refresh()
                     stdscr.getch()
             elif key in (curses.KEY_BACKSPACE, 127, 8):
                 search_query = search_query[:-1]
                 selected_index = 0
                 scroll_offset = 0
-            elif key == 27:  # ESC clears search
+            elif key == 27:
                 search_query = ""
                 selected_index = 0
                 scroll_offset = 0
-            elif 32 <= key <= 126:  # Printable characters
+            elif 32 <= key <= 126:
                 search_query += chr(key)
                 selected_index = 0
                 scroll_offset = 0
+
+class WorkoutVisualizer:
+    def __init__(self, csv_file):
+        self.data_loader = WorkoutDataLoader(csv_file)
+        self.menu_ui = WorkoutMenuUI(self.data_loader)
 
     def run(self):
         curses.wrapper(self.curses_main)
@@ -131,7 +127,7 @@ class WorkoutVisualizer:
         curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
         curses.init_pair(3, curses.COLOR_RED, curses.COLOR_BLACK)
-        self.display_menu_curses(stdscr)
+        self.menu_ui.display_menu(stdscr)
 
 def main():
     if len(sys.argv) != 2:

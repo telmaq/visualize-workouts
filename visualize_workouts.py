@@ -30,21 +30,25 @@ class WorkoutMenuUI:
         self.data_loader = data_loader
         self.exercises = data_loader.get_exercises()
 
-    def plot_weight_over_time_plotext(self, dates, weights, label='Weight over time'):
-        if not weights or len(weights) < 2:
-            print('Not enough data to plot.')
-            return
-        plt.clear_figure()
-        plt.title(label)
-        plt.xlabel('Date')
-        plt.ylabel('Weight')
-        plt.plot(dates, weights, marker='dot', color='green+')
-        plt.canvas_color('black')
-        plt.axes_color('black')
-        plt.ticks_color('white')
-        # plt.xticks(rotation=15, automatic=True)
-        # plt.tight_layout()
-        plt.show()
+    def sparkline(self, values, width=30):
+        """Create a Unicode sparkline from a list of values"""
+        if not values:
+            return " " * width
+
+        min_val, max_val = min(values), max(values)
+        if max_val == min_val:
+            return " " * width
+
+        # Map to sparkline characters (8 levels)
+        spark_chars = " ▂▃▄▅▆▇█"
+        normalized = [(v - min_val) / (max_val - min_val) * (len(spark_chars) - 1) for v in values]
+
+        # Sample to fit width
+        if len(normalized) > width:
+            step = len(normalized) / width
+            normalized = [normalized[int(i * step)] for i in range(width)]
+
+        return ''.join(spark_chars[int(v)] for v in normalized)
 
     def display_menu(self, stdscr):
         curses.curs_set(0)
@@ -72,9 +76,18 @@ class WorkoutMenuUI:
             elif selected_index >= scroll_offset + num_display_lines:
                 scroll_offset = selected_index - num_display_lines + 1
 
+            # Calculate the maximum exercise name length for right-aligned sparklines
+            max_exercise_length = max(len(ex) for ex in filtered_exercises) if filtered_exercises else 0
+            sparkline_start_col = max_exercise_length + 4  # 2 for arrow/space + 2 for padding
+            sparkline_width = 16
+
             for i, exercise in enumerate(filtered_exercises[scroll_offset:scroll_offset + num_display_lines]):
                 row = 7 + i
                 is_selected = (i + scroll_offset == selected_index)
+                # Generate sparkline for this exercise
+                exercise_data = self.data_loader.get_exercise_data(exercise)
+                weights = list(exercise_data['Weight'].dropna())
+                spark = self.sparkline(weights, width=sparkline_width) if weights else ' ' * sparkline_width
                 if search_query:
                     lower_ex = exercise.lower()
                     lower_query = search_query.lower()
@@ -96,6 +109,9 @@ class WorkoutMenuUI:
                     stdscr.addstr(row, col, exercise[start_idx+len(search_query):])
                 else:
                     stdscr.addstr(row, col, exercise)
+
+                # Right-align sparkline
+                stdscr.addstr(row, sparkline_start_col, spark)
                 if is_selected:
                     stdscr.attroff(curses.color_pair(1))
 
@@ -115,13 +131,19 @@ class WorkoutMenuUI:
                     stdscr.addstr(0, 0, f"You selected: {exercise_name}")
                     stdscr.addstr(2, 0, "Press any key to return to menu...")
                     exercise_data = self.data_loader.get_exercise_data(exercise_name)
-                    stdscr.addstr(4, 0, "(See terminal for plot)")
+                    stdscr.addstr(4, 0, "(See terminal for sparkline)")
                     stdscr.refresh()
                     curses.endwin()  # End curses mode before printing
-                    # Prepare data, drop missing weights and align dates
+                    # Prepare data, drop missing weights
                     weights = list(exercise_data['Weight'].dropna())
-                    dates = list(exercise_data.loc[exercise_data['Weight'].notna(), 'Workout Start'].dt.strftime('%d/%m/%Y'))
-                    self.plot_weight_over_time_plotext(dates, weights, label=f'Weight over time: {exercise_name}')
+                    if weights:
+                        spark = self.sparkline(weights, width=40)
+                        min_weight, max_weight = min(weights), max(weights)
+                        print(f"\nWeight over time: {exercise_name}")
+                        print(f"{spark}")
+                        print(f"{min_weight:.1f} → {max_weight:.1f} lbs ({len(weights)} sessions)")
+                    else:
+                        print(f"\nNo weight data for: {exercise_name}")
                     input("Press Enter to return to menu...")
                     return  # Exit to menu after plot
             elif key in (curses.KEY_BACKSPACE, 127, 8):
@@ -156,15 +178,15 @@ def main():
     if len(sys.argv) != 2:
         print("Usage: python workout_visualizer.py <csv_file>")
         sys.exit(1)
-    
+
     csv_file = sys.argv[1]
-    
+
     if not os.path.exists(csv_file):
         print(f"Error: File '{csv_file}' not found")
         sys.exit(1)
-    
+
     try:
-        visualizer = WorkoutVisualizer(csv_file) 
+        visualizer = WorkoutVisualizer(csv_file)
         visualizer.run()
     except KeyboardInterrupt:
         print("\nExiting... 💪")

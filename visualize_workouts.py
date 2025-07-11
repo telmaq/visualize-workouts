@@ -10,6 +10,7 @@ import os
 from collections import defaultdict
 import curses
 import plotext as plt
+from asciichartpy import plot
 
 class WorkoutDataLoader:
     def __init__(self, csv_file):
@@ -24,6 +25,23 @@ class WorkoutDataLoader:
         data = self.df[self.df['Exercise'] == exercise].copy()
         data = data.sort_values('Workout Start')
         return data
+
+
+class WorkoutExerciseUI:
+    def __init__(self, exercise, exercise_data):
+        self.exercise = exercise
+        self.exercise_data = exercise_data
+        # Filter out rows with missing weight data and sort by date
+        valid_data = exercise_data.dropna(subset=['Weight']).sort_values('Workout Start')
+        # Remove duplicates by keeping the latest weight for each date
+        self.dates = list(valid_data['Workout Start'])
+        self.values = list(valid_data['Weight'])
+
+    def create_ascii_chart(self, dates, values, metric, exercise_name):
+        chart_output = plot(values, {'height': 15, 'format': '{:8.1f}'})
+        return f"📈 {exercise_name} - {metric} Progression\n{chart_output}"
+
+
 
 class WorkoutMenuUI:
     def __init__(self, data_loader):
@@ -125,6 +143,7 @@ class WorkoutMenuUI:
                 if selected_index < len(filtered_exercises) - 1:
                     selected_index += 1
             elif key in [curses.KEY_ENTER, 10, 13]:
+
                 if filtered_exercises:
                     stdscr.clear()
                     exercise_name = filtered_exercises[selected_index]
@@ -134,13 +153,16 @@ class WorkoutMenuUI:
                     stdscr.addstr(4, 0, "(See terminal for sparkline)")
                     stdscr.refresh()
                     curses.endwin()  # End curses mode before printing
+                    os.system('clear')  # Clear the terminal screen
                     # Prepare data, drop missing weights
                     weights = list(exercise_data['Weight'].dropna())
                     if weights:
-                        spark = self.sparkline(weights, width=40)
+                        workout_exercise = WorkoutExerciseUI(exercise_name, exercise_data)
+                        workout_chart = workout_exercise.create_ascii_chart(workout_exercise.dates, workout_exercise.values, 'Weight', exercise_name)
+                        print(workout_chart)
                         min_weight, max_weight = min(weights), max(weights)
-                        print(f"\nWeight over time: {exercise_name}")
-                        print(f"{spark}")
+                        # print(f"\nWeight over time: {exercise_name}")
+                        # print(f"{spark}")
                         print(f"{min_weight:.1f} → {max_weight:.1f} lbs ({len(weights)} sessions)")
                     else:
                         print(f"\nNo weight data for: {exercise_name}")
